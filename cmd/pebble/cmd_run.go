@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -28,6 +29,7 @@ import (
 	"github.com/canonical/pebble/cmd"
 	"github.com/canonical/pebble/internal/daemon"
 	"github.com/canonical/pebble/internal/logger"
+	"github.com/canonical/pebble/internal/reaper"
 	"github.com/canonical/pebble/internal/systemd"
 )
 
@@ -35,6 +37,12 @@ var shortRunHelp = "Run the pebble environment"
 var longRunHelp = `
 The run command starts pebble and runs the configured environment.
 `
+var runOptionsHelp = map[string]string{
+	"create-dirs": "Create pebble directory on startup if it doesn't exist",
+	"hold":        "Do not start default services automatically",
+	"http":        `Start HTTP API listening on this address (e.g., ":4000")`,
+	"verbose":     "Log all output from services to stdout",
+}
 
 type cmdRun struct {
 	clientMixin
@@ -47,12 +55,7 @@ type cmdRun struct {
 
 func init() {
 	addCommand("run", shortRunHelp, longRunHelp, func() flags.Commander { return &cmdRun{} },
-		map[string]string{
-			"create-dirs": "Create pebble directory on startup if it doesn't exist",
-			"hold":        "Do not start default services automatically",
-			"http":        `Start HTTP API listening on this address (e.g., ":4000")`,
-			"verbose":     "Log all output from services to stdout",
-		}, nil)
+		runOptionsHelp, nil)
 }
 
 func (rcmd *cmdRun) Execute(args []string) error {
@@ -60,16 +63,16 @@ func (rcmd *cmdRun) Execute(args []string) error {
 		return ErrExtraArgs
 	}
 
-	rcmd.run()
+	rcmd.run(nil)
 
 	return nil
 }
 
-func (rcmd *cmdRun) run() {
+func (rcmd *cmdRun) run(nextCmdArgs []string) {
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
-	if err := runDaemon(rcmd, sigs); err != nil {
+	if err := runDaemon(rcmd, sigs, nextCmdArgs); err != nil {
 		if err == daemon.ErrRestartSocket {
 			// No "error: " prefix as this isn't an error.
 			fmt.Fprintf(os.Stdout, "%v\n", err)
@@ -117,7 +120,7 @@ func sanityCheck() error {
 	return nil
 }
 
-func runDaemon(rcmd *cmdRun, ch chan os.Signal) error {
+func runDaemon(rcmd *cmdRun, ch chan os.Signal, nextCmdArgs []string) error {
 	t0 := time.Now().Truncate(time.Millisecond)
 
 	pebbleDir, socketPath := getEnvPaths()
@@ -180,6 +183,25 @@ func runDaemon(rcmd *cmdRun, ch chan os.Signal) error {
 		}
 	}
 
+	var nextCmdExit chan struct{}
+
+	if nextCmdArgs != nil {
+		nextCmd := exec.Command(os.Args[0], nextCmdArgs...)
+		nextCmd.Stdin = os.Stdin
+		nextCmd.Stdout = os.Stdout
+		nextCmd.Stderr = os.Stderr
+		err = reaper.StartCommand(nextCmd)
+		if err != nil {
+			return fmt.Errorf("cannot start command %#v: %v", nextCmd, err)
+		}
+		nextCmdExit = make(chan struct{})
+		go func() {
+			exitCode, err := reaper.WaitCommand(nextCmd)
+			_, _ = exitCode, err
+			close(nextCmdExit)
+		}()
+	}
+
 out:
 	for {
 		select {
@@ -195,6 +217,8 @@ out:
 				d.SetDegradedMode(nil)
 				tic.Stop()
 			}
+		case <-nextCmdExit:
+			break out
 		}
 	}
 

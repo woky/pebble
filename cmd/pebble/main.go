@@ -177,7 +177,7 @@ func Parser(cli *client.Client) *flags.Parser {
 		printVersions(cli)
 		panic(&exitStatus{0})
 	}
-	flagopts := flags.Options(flags.PassDoubleDash)
+	flagopts := flags.Options(flags.PassDoubleDash | flags.IgnoreUnknown)
 	parser := flags.NewParser(&optionsData, flagopts)
 	parser.ShortDescription = "Tool to interact with pebble"
 	parser.LongDescription = longPebbleDescription
