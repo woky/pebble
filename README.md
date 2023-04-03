@@ -2,9 +2,8 @@
 
 FORTUNE
 
-QOTD:
-	"Everything I am today I owe to people, whom it is now
-	to late to punish."
+I got vision, and the rest of the world wears bifocals.
+		-- Butch Cassidy
 
 _Take control of your internal daemons!_
 
