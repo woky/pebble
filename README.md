@@ -1,5 +1,10 @@
 # The Pebble service manager
 
+FORTUNE
+
+I got vision, and the rest of the world wears bifocals.
+		-- Butch Cassidy
+
 _Take control of your internal daemons!_
 
 **Pebble** helps you to orchestrate a set of local service processes as an organized set.
